@@ -33,6 +33,18 @@ pub trait TryIntoCanon {
         Self: Sized;
 }
 
+pub trait IntoCanonColor {
+    fn into_canon_color(self, ptn: &mut [i32]) -> Self;
+}
+
+pub trait TryIntoCanonColor {
+    type Error;
+
+    fn try_into_canon_color(self, ptn: &mut [i32]) -> Result<Self, Self::Error>
+    where
+        Self: Sized;
+}
+
 /// Use sparse nauty to find the canonical labelling
 pub trait IntoCanonNautySparse {
     fn into_canon_nauty_sparse(self) -> Self;
@@ -57,6 +69,19 @@ pub trait TryIntoCanonNautyDense {
     type Error;
 
     fn try_into_canon_nauty_dense(self) -> Result<Self, Self::Error>
+    where
+        Self: Sized;
+}
+
+pub trait IntoCanonColorNautyDense {
+    fn into_canon_color_nauty_dense(self, ptn: &mut [i32]) -> Self;
+}
+
+/// Use dense nauty to find the canonical labelling
+pub trait TryIntoCanonColorNautyDense {
+    type Error;
+
+    fn try_into_canon_color_nauty_dense(self, ptn: &mut [i32]) -> Result<Self, Self::Error>
     where
         Self: Sized;
 }
@@ -94,6 +119,28 @@ where
 
     fn try_into_canon(self) -> Result<Self, Self::Error> {
         self.try_into_canon_nauty_dense()
+    }
+}
+
+impl<N, E, Ty: EdgeType, Ix: IndexType> IntoCanonColor for Graph<N, E, Ty, Ix>
+where
+    Graph<N, E, Ty, Ix>: TryIntoCanonColor,
+    <Graph<N, E, Ty, Ix> as TryIntoCanonColor>::Error: Debug,
+{
+    fn into_canon_color(self, ptn: &mut [i32]) -> Self {
+        self.try_into_canon_color(ptn).unwrap()
+    }
+}
+
+impl<N, E, Ty: EdgeType, Ix: IndexType> TryIntoCanonColor for Graph<N, E, Ty, Ix>
+where
+    N: Ord,
+    E: Hash + Ord,
+{
+    type Error = NautyError;
+
+    fn try_into_canon_color(self, ptn: &mut [i32]) -> Result<Self, Self::Error> {
+        self.try_into_canon_color_nauty_dense(ptn)
     }
 }
 
@@ -204,6 +251,65 @@ where
 {
     fn into_canon_nauty_dense(self) -> Self {
         self.try_into_canon_nauty_dense().unwrap()
+    }
+}
+
+impl<N, E, Ty, Ix: IndexType> TryIntoCanonColorNautyDense for Graph<N, E, Ty, Ix>
+where
+    N: Ord,
+    E: Hash + Ord,
+    Ty: EdgeType,
+{
+    type Error = NautyError;
+
+    fn try_into_canon_color_nauty_dense(self, ptn: &mut [i32]) -> Result<Self, Self::Error> {
+        use ::std::os::raw::c_int;
+        use NautyError::*;
+
+        if self.node_count() == 0 {
+            return Ok(self);
+        }
+        let mut options = if self.is_directed() {
+            optionblk::default_digraph()
+        } else {
+            optionblk::default()
+        };
+        options.getcanon = TRUE;
+        options.defaultptn = FALSE;
+        options.digraph = if self.is_directed() { TRUE } else { FALSE };
+        let mut stats = statsblk::default();
+        let mut dg = DenseGraph::from(self);
+        let mut orbits = vec![0; dg.n];
+        let mut cg = empty_graph(dg.m, dg.n);
+        unsafe {
+            densenauty(
+                dg.g.as_mut_ptr(),
+                dg.nodes.lab.as_mut_ptr(),
+                ptn.as_mut_ptr(),
+                orbits.as_mut_ptr(),
+                &mut options,
+                &mut stats,
+                dg.m as c_int,
+                dg.n as c_int,
+                cg.as_mut_ptr(),
+            );
+        }
+        match stats.errstatus {
+            0 => Ok(dg.into()),
+            MTOOBIG => Err(MTooBig),
+            NTOOBIG => Err(NTooBig),
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl<N, E, Ty, Ix> IntoCanonColorNautyDense for Graph<N, E, Ty, Ix>
+where
+    Graph<N, E, Ty, Ix>: TryIntoCanonColorNautyDense,
+    <Graph<N, E, Ty, Ix> as TryIntoCanonColorNautyDense>::Error: Debug,
+{
+    fn into_canon_color_nauty_dense(self, ptn: &mut [i32]) -> Self {
+        self.try_into_canon_color_nauty_dense(ptn).unwrap()
     }
 }
 
