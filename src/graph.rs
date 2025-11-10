@@ -4,6 +4,7 @@ use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 
 use crate::{IntoCanon, IsIdentical};
+use crate::canon::IntoCanonColor;
 
 use petgraph::{
     Directed, EdgeType, IntoWeightedEdge, Undirected,
@@ -46,6 +47,12 @@ pub type CanonUnGraph<N, E, Ix> = CanonGraph<N, E, Undirected, Ix>;
 pub struct CanonGraph<N, E, Ty: EdgeType = Directed, Ix: IndexType = DefaultIx>(
     Graph<N, E, Ty, Ix>,
 );
+
+impl<N: Ord, E: Ord + Hash, Ty: EdgeType, Ix: IndexType> CanonGraph<N, E, Ty, Ix> {
+    pub fn from_colored_graph(graph: Graph<N, E, Ty, Ix>, ptn: &mut [i32]) -> Self {
+        Self(graph.into_canon_color(ptn))
+    }
+}
 
 impl<N, E, Ty: EdgeType, Ix: IndexType> Default for CanonGraph<N, E, Ty, Ix> {
     fn default() -> Self {
